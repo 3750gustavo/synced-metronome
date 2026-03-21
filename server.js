@@ -1,13 +1,77 @@
 const express = require('express');
-const timesyncServer = require('timesync/server')
+const timesyncServer = require('timesync/server');
 const app = express();
 const path = require('path');
 const http = require('http');
 const server = http.createServer(app);
 const { Server } = require("socket.io");
 const io = new Server(server);
+const fs = require('fs');
+const cors = require('cors');
+
+const CONFIG_PATH = path.join(__dirname, 'config', 'video_paths.json');
+
+// Add video-related functions
+function loadVideoPaths() {
+    try {
+        const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+        return config.paths.map(p => path.normalize(p));
+    } catch (err) {
+        console.error('Error loading video paths:', err);
+        return [];
+    }
+}
+
+function getVideosInDirectory(directory) {
+    const videos = [];
+    const files = fs.readdirSync(directory);
+
+    files.forEach(file => {
+        const filePath = path.join(directory, file);
+        const stat = fs.statSync(filePath);
+
+        if (stat.isDirectory()) {
+            videos.push(...getVideosInDirectory(filePath));
+        } else if (file.match(/\.(mp4|webm|mkv)$/i)) {
+            videos.push(filePath);
+        }
+    });
+
+    return videos;
+}
+
+function getVideosWithStructure(directories) {
+    const structure = {
+        videos: []
+    };
+
+    directories.forEach(baseDir => {
+        function processDirectory(dir) {
+            const files = fs.readdirSync(dir);
+
+            files.forEach(file => {
+                const fullPath = path.join(dir, file);
+                const stat = fs.statSync(fullPath);
+
+                if (stat.isDirectory()) {
+                    processDirectory(fullPath);
+                } else if (file.match(/\.(mp4|webm|mkv)$/i)) {
+                    structure.videos.push({
+                        path: fullPath,
+                        name: file
+                    });
+                }
+            });
+        }
+
+        processDirectory(baseDir);
+    });
+
+    return structure;
+}
 
 app.use('/timesync/', express.static(path.join(__dirname, '/../../../dist')));
+app.use(cors()); // Permitir CORS durante o desenvolvimento
 
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/index.html');
@@ -36,12 +100,12 @@ io.on('connection', (socket) => {
       console.log("joined room " + msg.roomID)
       io.to(msg.socketID).emit("joined", msg)
       socket.join(msg.roomID);
-      setTimeout(function(){ 
+      setTimeout(function(){
         io.to(msg.socketID).emit('user_stop', msg)
       }, 100)
       // interval = setInterval(() => {
       //   const start = Date.now();
-      
+
       //   io.to(msg.id).emit("ping", start)
       // }, 10);
     }
@@ -50,7 +114,7 @@ io.on('connection', (socket) => {
       console.log("room " + msg.roomID + " not found")
       io.to(msg.socketID).emit("not found", msg)
     }
-    
+
   })
 
   socket.on('leave_room', (msg)=>{
@@ -68,7 +132,7 @@ io.on('connection', (socket) => {
       console.log("created room: " + msg)
       socket.join(msg.roomID);
     }
-    
+
   })
 
   // socket.on('ping', (msg) => {
@@ -90,24 +154,140 @@ io.on('connection', (socket) => {
       result: Date.now()
     });
   });
+
+  socket.on('request_videos', () => {
+    const videoPaths = loadVideoPaths();
+    const videoStructure = getVideosWithStructure(videoPaths);
+    socket.emit('video_structure', videoStructure);
+  });
+
+  socket.on('select_video', (msg) => {
+    io.to(msg.roomID).emit('play_video', {
+      videoPath: msg.videoPath,
+      serverTime: Date.now()
+    });
+  });
+
+  socket.on('video_control', (msg) => {
+    // Add server timestamp for sync calculations
+    const serverTime = Date.now();
+    io.to(msg.roomID).emit('video_state_change', {
+      action: msg.action,
+      currentTime: msg.currentTime,
+      serverTime: serverTime,
+      clientTime: msg.timestamp
+    });
+  });
+
+  socket.on('check_sync', (msg) => {
+    // Forward the host's current time to the requesting client
+    socket.emit('sync_check_response', {
+      currentTime: msg.currentTime,
+      serverTime: Date.now()
+    });
+  });
+
+  // Handle video control events from server_met (host)
+  socket.on('video_control', (msg) => {
+    if (io.sockets.adapter.rooms.has(msg.roomID)) {
+        // Add server timestamp for better sync calculations
+        msg.serverTime = Date.now();
+
+        // Broadcast to all clients in the room except sender
+        socket.to(msg.roomID).emit('video_state_change', msg);
+    }
+  });
+
+  // Handle video selection events
+  socket.on('select_video', (msg) => {
+    if (io.sockets.adapter.rooms.has(msg.roomID)) {
+        // Broadcast to everyone in the room including sender
+        io.to(msg.roomID).emit('play_video', msg);
+    }
+  });
+
+  // Handle sync requests
+  socket.on('request_sync', (msg) => {
+    if (io.sockets.adapter.rooms.has(msg.roomID)) {
+        const roomSockets = Array.from(io.sockets.adapter.rooms.get(msg.roomID) || []);
+        const hostSocket = roomSockets[0]; // Assuming first socket is host
+
+        if (hostSocket) {
+            io.to(hostSocket).emit('get_current_time', {
+                requester: socket.id,
+                roomID: msg.roomID
+            });
+        }
+    }
+  });
+
+  socket.on('check_sync', (msg) => {
+    if (io.sockets.adapter.rooms.has(msg.roomID)) {
+        const roomSockets = Array.from(io.sockets.adapter.rooms.get(msg.roomID) || []);
+        const hostSocket = roomSockets[0]; // First socket is host
+
+        if (hostSocket && hostSocket !== socket.id) {
+            io.to(hostSocket).emit('get_sync_time', {
+                requester: socket.id,
+                roomID: msg.roomID,
+                clientTime: msg.timestamp
+            });
+        }
+    }
 });
 
+socket.on('sync_response', (msg) => {
+    if (io.sockets.adapter.rooms.has(msg.roomID)) {
+        io.to(msg.requester).emit('sync_adjustment', msg);
+    }
+});
+});
 
+// Keep only the necessary routes
+app.get('/video/:filename', (req, res) => {
+  try {
+    const videoPath = decodeURIComponent(req.params.filename);
+    const videoPaths = loadVideoPaths();
 
-app.get('/', function(req, res){
-  res.sendFile(path.join(__dirname + '/index.html'));
-});
-app.get('/lobby', function(req, res){
-  res.sendFile(path.join(__dirname + '/pages/lobby.html'));
-});
-app.get('/server_met', function(req, res){
-  res.sendFile(path.join(__dirname + '/pages/server_met.html'));
-});
-app.get('/user_met', function(req, res){
-  res.sendFile(path.join(__dirname + '/pages/user_met.html'));
-});
-app.get('/waiting', function(req, res){
-  res.sendFile(path.join(__dirname + '/pages/waiting.html'));
+    // Validate video path
+    const isValidPath = videoPaths.some(basePath =>
+      videoPath.startsWith(path.normalize(basePath))
+    );
+
+    if (!isValidPath) {
+      return res.status(403).send('Access denied');
+    }
+
+    const stat = fs.statSync(videoPath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize-1;
+      const chunksize = (end-start)+1;
+      const file = fs.createReadStream(videoPath, {start, end});
+      const head = {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize,
+        'Content-Type': 'video/mp4',
+      };
+      res.writeHead(206, head);
+      file.pipe(res);
+    } else {
+      const head = {
+        'Content-Length': fileSize,
+        'Content-Type': 'video/mp4',
+      };
+      res.writeHead(200, head);
+      fs.createReadStream(videoPath).pipe(res);
+    }
+  } catch (error) {
+    console.error('Invalid URI in filename parameter:', error);
+    res.status(400).send('Invalid filename format');
+  }
 });
 
 // app.post('/timesync', function (req, res) {

@@ -28,8 +28,25 @@
                 <div class="adjust-tempo-btn increase-tempo">+</div>
             </div>
             <div class="start-stop">CREATE</div>
-          
-
+            <!-- shows the same video in sync, but also has a button to select a video from server -->
+                <div class="video_player_choosen_by_host">
+                    <video id="videoPlayer" width="640" height="360" controls muted>
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+                
+            <!-- Add a modal for video selection -->
+            <div class="video-select-modal" id="videoSelectModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Select Video <span class="video-path"></span></h2>
+                        <span class="close-modal">&times;</span>
+                    </div>
+                    <div class="directory-tree"></div>
+                    <div class="video-grid"></div>
+                </div>
+            </div>
+            <button class="video-select-btn">Select Video</button>
         </div>
     </div>
     <script src="https://code.createjs.com/1.0.0/soundjs.min.js"></script></head>
@@ -38,6 +55,7 @@
     <script src="../js/pinger.js"></script>
     <script src="/timesync/timesync.js"></script>
     <script src="../js/server_met.js" type="module"></script>
+    <script src="../js/directory_tree.js"></script>
 
 </body>
 </html>

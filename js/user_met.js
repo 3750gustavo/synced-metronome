@@ -3,6 +3,8 @@ const tempoText = document.querySelector('.tempo-text');
 const dot = document.querySelector('.dot');
 const enterBtn = document.querySelector('.join-btn');
 const codeInput = document.querySelector('.form-control');
+const videoPlayer = document.querySelector('#videoPlayer');
+let isHandlingServerEvent = false;
 
 var metronome = new Metronome(dot);
 let bpm = 140;
@@ -34,7 +36,7 @@ socket.on('user_start', function(msg) {
             socket.emit("master_stop", {roomID: socketRoom, error: "outOfSync"});
         }, 500)
         kickCounter++;
-        
+
     }
 
 });
@@ -68,7 +70,7 @@ socket.on('timesync', function (data) {
 // })
 socket.on('not found', function(msg) {
     enterBtn.innerHTML = 'Not found!';
-    setTimeout(function(){ 
+    setTimeout(function(){
         enterBtn.innerHTML = 'JOIN';
       }, 1000)
 })
@@ -100,7 +102,7 @@ enterBtn.addEventListener('click', () => {
     var txt = codeInput.value
     socket.emit('join_room', { roomID: txt , socketID: socket.id});
     metronome.start();
-    setTimeout(function(){ 
+    setTimeout(function(){
       metronome.stop();
     }, 500)
 });
@@ -124,5 +126,130 @@ function updateMetronome() {
     tempoText.textContent = tempoTextString;
 }
 
+// Add this event handler for receiving video paths
+socket.on('play_video', (msg) => {
+    videoPlayer.src = `/video/${encodeURIComponent(msg.videoPath)}`;
+    videoPlayer.currentTime = 0;
+    videoPlayer.play().catch(err => console.error('Video play error:', err));
+});
 
+// Handle video state changes from server
+socket.on('video_state_change', (msg) => {
+    if (isHandlingServerEvent) return;
+    isHandlingServerEvent = true;
 
+    console.log('Video state change from server:', msg.action);
+
+    try {
+        switch(msg.action) {
+            case 'play':
+                // Calculate time difference and adjust for network delay
+                const timeOffset = (Date.now() - msg.serverTime) / 1000;
+                const adjustedTime = msg.currentTime + timeOffset;
+
+                // Set current time and play
+                videoPlayer.currentTime = adjustedTime;
+                videoPlayer.play().catch(console.error);
+                break;
+
+            case 'pause':
+                videoPlayer.pause();
+                videoPlayer.currentTime = msg.currentTime;
+                break;
+
+            case 'seek':
+                videoPlayer.currentTime = msg.currentTime;
+                break;
+        }
+    } catch (error) {
+        console.error('Error handling video sync:', error);
+    } finally {
+        setTimeout(() => {
+            isHandlingServerEvent = false;
+        }, 100);
+    }
+});
+
+// Add periodic sync check
+setInterval(() => {
+    if (videoPlayer.duration > 0 && !videoPlayer.paused) {
+        socket.emit('check_sync', {
+            roomID: socketRoom,
+            currentTime: videoPlayer.currentTime,
+            timestamp: Date.now()
+        });
+    }
+}, 10000); // Check every 10 seconds
+
+// Handle sync response
+socket.on('sync_check_response', (msg) => {
+    const hostTime = msg.currentTime;
+    const currentTime = videoPlayer.currentTime;
+    const diff = Math.abs(hostTime - currentTime);
+
+    if (diff > 0.5) {  // If more than 500ms off
+        isHandlingServerEvent = true;
+        videoPlayer.currentTime = hostTime;
+        setTimeout(() => {
+            isHandlingServerEvent = false;
+        }, 100);
+    }
+});
+
+// Prevent clients from controlling video directly
+videoPlayer.addEventListener('play', (e) => {
+    if (!isHandlingServerEvent) {
+        e.preventDefault();
+        videoPlayer.pause();
+
+        // Request sync from server
+        socket.emit('request_sync', {
+            roomID: socketRoom
+        });
+    }
+});
+
+videoPlayer.addEventListener('pause', (e) => {
+    if (!isHandlingServerEvent) {
+        e.preventDefault();
+    }
+});
+
+videoPlayer.addEventListener('seeked', (e) => {
+    if (!isHandlingServerEvent) {
+        e.preventDefault();
+        // Revert to previous position if available
+        if (videoPlayer.lastTime !== undefined) {
+            videoPlayer.currentTime = videoPlayer.lastTime;
+        }
+    }
+});
+
+// Store last time before seeking
+videoPlayer.addEventListener('seeking', () => {
+    if (!isHandlingServerEvent) {
+        videoPlayer.lastTime = videoPlayer.currentTime;
+    }
+});
+
+// Add to user_met.js
+socket.on('sync_adjustment', (msg) => {
+    if (isHandlingServerEvent) return;
+
+    const roundTripTime = Date.now() - msg.clientTime;
+    const oneWayLatency = roundTripTime / 2;
+    const hostTime = msg.currentTime + (oneWayLatency / 1000);
+    const currentTime = videoPlayer.currentTime;
+    const timeDiff = Math.abs(hostTime - currentTime);
+
+    // If more than 0.5 seconds off, adjust
+    if (timeDiff > 0.5) {
+        isHandlingServerEvent = true;
+        console.log(`Adjusting video time from ${currentTime} to ${hostTime}`);
+        videoPlayer.currentTime = hostTime;
+
+        setTimeout(() => {
+            isHandlingServerEvent = false;
+        }, 100);
+    }
+});

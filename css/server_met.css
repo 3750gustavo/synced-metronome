@@ -96,11 +96,15 @@ body{
 
 input[type=range] {
     -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
     background-color: transparent;
     width: 70%;
 }
 input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
 }
 input[type=range]:focus {
     outline: none;
@@ -108,6 +112,8 @@ input[type=range]:focus {
 
 input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
     width: 16px;
     height: 16px;
     border-radius: 50%;
@@ -117,6 +123,8 @@ input[type=range]::-webkit-slider-thumb {
 }
 input[type=range]::-moz-range-thumb {
     -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
     width: 16px;
     height: 16px;
     border-radius: 50%;
@@ -170,4 +178,110 @@ input[type=range]::-moz-range-track {
 .measures .stepper:hover {
     background: #ff656c;
     color: #fff;
+}
+
+/* mostra o player de video completo, sendo o host quem tem controle de tudo */
+#videoPlayer {
+    cursor: pointer;
+    /* Show controls for server */
+    display: block;
+}
+
+#videoPlayer::-webkit-media-controls {
+    display: flex !important;
+}
+
+.video-select-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    z-index: 1000;
+}
+
+.modal-content {
+    position: relative;
+    background-color: #fefefe;
+    margin: 5% auto;
+    padding: 20px;
+    width: 80%;
+    max-width: 1200px;
+    border-radius: 8px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #ddd;
+}
+
+.close-modal {
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    color: #666;
+}
+
+.close-modal:hover {
+    color: #000;
+}
+
+.directory-tree {
+    width: 250px;
+    float: left;
+    padding: 10px;
+    border-right: 1px solid #ddd;
+    height: calc(80vh - 100px);
+    overflow-y: auto;
+}
+
+.directory-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.directory-item:hover {
+    background-color: #f0f0f0;
+}
+
+.directory-item.active {
+    background-color: #e0e0e0;
+    font-weight: bold;
+}
+
+.directory-icon {
+    font-size: 1.2em;
+}
+
+.video-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 20px;
+    overflow-y: auto;
+    height: calc(80vh - 100px);
+}
+
+.video-item {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    font-size: 14px;
+}
+
+.video-item:hover {
+    background-color: #f0f0f0;
 }

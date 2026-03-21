@@ -52,7 +52,7 @@ body{
     text-align: center;
     font-size: 1.5em;
     text-transform: uppercase;
-    
+
 }
 
 .form-control{
@@ -88,4 +88,20 @@ body{
 
 .btn:hover{
   color:#fa545c;
+}
+
+/* Video player styles - ensure it's visible but not controllable */
+#videoPlayer {
+  display: block; /* Make sure it's visible */
+  width: 100%;
+  max-width: 640px;
+  margin: 20px auto;
+}
+
+/* Hide native controls for client */
+#videoPlayer::-webkit-media-controls {
+  display: none !important;
+}
+#videoPlayer::-webkit-media-controls-enclosure {
+  display: none !important;
 }
