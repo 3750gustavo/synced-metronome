@@ -105,3 +105,28 @@ body{
 #videoPlayer::-webkit-media-controls-enclosure {
   display: none !important;
 }
+
+/* Volume control styles */
+.volume-control {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 10px auto;
+  max-width: 640px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 5px;
+}
+
+.volume-control label {
+  color: #fa545c;
+  font-family: "Raleway", sans-serif;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.volume-control input[type="range"] {
+  flex: 1;
+  cursor: pointer;
+}

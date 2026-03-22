@@ -7,6 +7,7 @@ const startStopBtn = document.querySelector('.start-stop');
 const dot = document.querySelector('.dot');
 const code = document.querySelector('.code');
 const videoPlayer = document.querySelector('#videoPlayer');
+const videoVolumeSlider = document.querySelector('#videoVolume');
 const videoSelectBtn = document.querySelector('.video-select-btn');
 const videoSelectModal = document.querySelector('#videoSelectModal');
 const directoryTree = document.querySelector('.directory-tree');
@@ -288,9 +289,11 @@ socket.on('video_structure', (structure) => {
 });
 
 socket.on('play_video', (msg) => {
+    // Host toca vídeo localmente para controle
+    console.log('Video selected:', msg.videoPath);
     videoPlayer.src = `/video/${encodeURIComponent(msg.videoPath)}`;
     videoPlayer.currentTime = 0;
-    videoPlayer.play();
+    // Não tocar automaticamente, espera usuário clicar play
 });
 
 // Close modal when clicking the close button or outside the modal
@@ -304,7 +307,7 @@ window.addEventListener('click', (event) => {
     }
 });
 
-// Update the play event listener
+// Host toca vídeo localmente E envia comandos para servidor
 videoPlayer.addEventListener('play', () => {
     videoIsPlaying = true;
     videoCurrentTime = videoPlayer.currentTime;
@@ -312,12 +315,11 @@ videoPlayer.addEventListener('play', () => {
     socket.emit('video_control', {
         roomID: roomID,
         action: 'play',
-        currentTime: videoCurrentTime,
-        timestamp: ts.now()
+        currentTime: videoCurrentTime
     });
+    // Host toca localmente para controle
 });
 
-// Update the pause event listener
 videoPlayer.addEventListener('pause', () => {
     videoIsPlaying = false;
     videoCurrentTime = videoPlayer.currentTime;
@@ -325,20 +327,17 @@ videoPlayer.addEventListener('pause', () => {
     socket.emit('video_control', {
         roomID: roomID,
         action: 'pause',
-        currentTime: videoCurrentTime,
-        timestamp: ts.now()
+        currentTime: videoCurrentTime
     });
 });
 
-// Update the seeked event listener
 videoPlayer.addEventListener('seeked', () => {
     videoCurrentTime = videoPlayer.currentTime;
 
     socket.emit('video_control', {
         roomID: roomID,
         action: 'seek',
-        currentTime: videoCurrentTime,
-        timestamp: ts.now()
+        currentTime: videoCurrentTime
     });
 });
 
@@ -347,24 +346,10 @@ videoPlayer.addEventListener('timeupdate', () => {
     videoCurrentTime = videoPlayer.currentTime;
 });
 
-// Add handler for get_current_time requests
-socket.on('get_current_time', (msg) => {
-    socket.emit('current_time_response', {
-        currentTime: videoPlayer.currentTime,
-        isPlaying: !videoPlayer.paused,
-        timestamp: ts.now(),
-        requester: msg.requester,
-        roomID: msg.roomID
-    });
+// Video volume control for host
+videoVolumeSlider.addEventListener('input', () => {
+    videoPlayer.volume = videoVolumeSlider.value;
 });
 
-socket.on('get_sync_time', (msg) => {
-    socket.emit('sync_response', {
-        currentTime: videoPlayer.currentTime,
-        isPlaying: !videoPlayer.paused,
-        hostTimestamp: ts.now(),
-        clientTime: msg.clientTime,
-        requester: msg.requester,
-        roomID: msg.roomID
-    });
-});
+// Set initial volume
+videoPlayer.volume = videoVolumeSlider.value;

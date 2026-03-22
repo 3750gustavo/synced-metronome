@@ -4,6 +4,7 @@ const dot = document.querySelector('.dot');
 const enterBtn = document.querySelector('.join-btn');
 const codeInput = document.querySelector('.form-control');
 const videoPlayer = document.querySelector('#videoPlayer');
+const videoVolumeSlider = document.querySelector('#videoVolume');
 let isHandlingServerEvent = false;
 
 var metronome = new Metronome(dot);
@@ -107,6 +108,15 @@ enterBtn.addEventListener('click', () => {
     }, 500)
 });
 
+// Video volume control for client
+videoVolumeSlider.addEventListener('input', () => {
+    videoPlayer.volume = videoVolumeSlider.value;
+    videoPlayer.muted = false; // Unmute when volume is adjusted
+});
+
+// Set initial volume
+videoPlayer.volume = videoVolumeSlider.value;
+
 function updateMetronome() {
     tempoDisplay.textContent = bpm;
     metronome.tempo = bpm;
@@ -126,11 +136,11 @@ function updateMetronome() {
     tempoText.textContent = tempoTextString;
 }
 
-// Add this event handler for receiving video paths
+// Cliente carrega vídeo via HTTP e sincroniza com comandos do host
 socket.on('play_video', (msg) => {
     videoPlayer.src = `/video/${encodeURIComponent(msg.videoPath)}`;
     videoPlayer.currentTime = 0;
-    videoPlayer.play().catch(err => console.error('Video play error:', err));
+    console.log('Video loaded:', msg.videoPath);
 });
 
 // Handle video state changes from server
@@ -144,11 +154,13 @@ socket.on('video_state_change', (msg) => {
         switch(msg.action) {
             case 'play':
                 // Calculate time difference and adjust for network delay
+                // Subtract offset to account for network latency
                 const timeOffset = (Date.now() - msg.serverTime) / 1000;
-                const adjustedTime = msg.currentTime + timeOffset;
+                const adjustedTime = msg.currentTime - timeOffset;
 
                 // Set current time and play
                 videoPlayer.currentTime = adjustedTime;
+                videoPlayer.muted = false; // Ensure audio is enabled
                 videoPlayer.play().catch(console.error);
                 break;
 
@@ -159,6 +171,12 @@ socket.on('video_state_change', (msg) => {
 
             case 'seek':
                 videoPlayer.currentTime = msg.currentTime;
+                // Force playback after seek to prevent freezing
+                setTimeout(() => {
+                    if (!videoPlayer.paused) {
+                        videoPlayer.play().catch(console.error);
+                    }
+                }, 100);
                 break;
         }
     } catch (error) {
@@ -170,42 +188,11 @@ socket.on('video_state_change', (msg) => {
     }
 });
 
-// Add periodic sync check
-setInterval(() => {
-    if (videoPlayer.duration > 0 && !videoPlayer.paused) {
-        socket.emit('check_sync', {
-            roomID: socketRoom,
-            currentTime: videoPlayer.currentTime,
-            timestamp: Date.now()
-        });
-    }
-}, 10000); // Check every 10 seconds
-
-// Handle sync response
-socket.on('sync_check_response', (msg) => {
-    const hostTime = msg.currentTime;
-    const currentTime = videoPlayer.currentTime;
-    const diff = Math.abs(hostTime - currentTime);
-
-    if (diff > 0.5) {  // If more than 500ms off
-        isHandlingServerEvent = true;
-        videoPlayer.currentTime = hostTime;
-        setTimeout(() => {
-            isHandlingServerEvent = false;
-        }, 100);
-    }
-});
-
 // Prevent clients from controlling video directly
 videoPlayer.addEventListener('play', (e) => {
     if (!isHandlingServerEvent) {
         e.preventDefault();
         videoPlayer.pause();
-
-        // Request sync from server
-        socket.emit('request_sync', {
-            roomID: socketRoom
-        });
     }
 });
 
@@ -232,24 +219,3 @@ videoPlayer.addEventListener('seeking', () => {
     }
 });
 
-// Add to user_met.js
-socket.on('sync_adjustment', (msg) => {
-    if (isHandlingServerEvent) return;
-
-    const roundTripTime = Date.now() - msg.clientTime;
-    const oneWayLatency = roundTripTime / 2;
-    const hostTime = msg.currentTime + (oneWayLatency / 1000);
-    const currentTime = videoPlayer.currentTime;
-    const timeDiff = Math.abs(hostTime - currentTime);
-
-    // If more than 0.5 seconds off, adjust
-    if (timeDiff > 0.5) {
-        isHandlingServerEvent = true;
-        console.log(`Adjusting video time from ${currentTime} to ${hostTime}`);
-        videoPlayer.currentTime = hostTime;
-
-        setTimeout(() => {
-            isHandlingServerEvent = false;
-        }, 100);
-    }
-});

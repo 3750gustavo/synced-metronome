@@ -8,8 +8,16 @@ const { Server } = require("socket.io");
 const io = new Server(server);
 const fs = require('fs');
 const cors = require('cors');
+const ffmpeg = require('fluent-ffmpeg');
 
 const CONFIG_PATH = path.join(__dirname, 'config', 'video_paths.json');
+
+// Estado do vídeo no servidor
+let currentVideoPath = null;
+let isPlaying = false;
+let currentTime = 0;
+let videoDuration = 0;
+let hostSocketId = null; // ID do socket do host
 
 // Add video-related functions
 function loadVideoPaths() {
@@ -83,6 +91,7 @@ app.use('/timesync', timesyncServer.requestHandler);
 
 io.on('connection', (socket) => {
   //console.log('a user connected');
+  
   socket.on('master_start', (msg) => {
     io.to(msg.roomID).emit('user_start', msg.start);
   });
@@ -162,85 +171,70 @@ io.on('connection', (socket) => {
   });
 
   socket.on('select_video', (msg) => {
-    io.to(msg.roomID).emit('play_video', {
-      videoPath: msg.videoPath,
-      serverTime: Date.now()
+    const videoPath = msg.videoPath;
+    
+    // Validar caminho
+    const videoPaths = loadVideoPaths();
+    const isValidPath = videoPaths.some(basePath =>
+        videoPath.startsWith(path.normalize(basePath))
+    );
+
+    if (!isValidPath) {
+        socket.emit('error', { message: 'Invalid video path' });
+        return;
+    }
+
+    // Obter duração do vídeo
+    ffmpeg.ffprobe(videoPath, (err, metadata) => {
+        if (!err) {
+            videoDuration = metadata.format.duration;
+            currentVideoPath = videoPath;
+            currentTime = 0;
+            isPlaying = false;
+            hostSocketId = socket.id;
+            console.log('Video selected:', videoPath, 'Duration:', videoDuration);
+        }
     });
+
+    // Notificar todos na sala para carregar o vídeo via HTTP
+    if (io.sockets.adapter.rooms.has(msg.roomID)) {
+        io.to(msg.roomID).emit('play_video', {
+            videoPath: videoPath,
+            serverTime: Date.now()
+        });
+    }
   });
 
   socket.on('video_control', (msg) => {
-    // Add server timestamp for sync calculations
-    const serverTime = Date.now();
-    io.to(msg.roomID).emit('video_state_change', {
-      action: msg.action,
-      currentTime: msg.currentTime,
-      serverTime: serverTime,
-      clientTime: msg.timestamp
+    const roomID = msg.roomID;
+    
+    if (!io.sockets.adapter.rooms.has(roomID)) {
+        return;
+    }
+
+    // Atualizar estado do servidor
+    switch(msg.action) {
+        case 'play':
+            isPlaying = true;
+            currentTime = msg.currentTime;
+            break;
+        case 'pause':
+            isPlaying = false;
+            currentTime = msg.currentTime;
+            break;
+        case 'seek':
+            currentTime = msg.currentTime;
+            break;
+    }
+
+    // Broadcast comando para todos os clientes (exceto host)
+    socket.to(roomID).emit('video_state_change', {
+        action: msg.action,
+        currentTime: msg.currentTime,
+        serverTime: Date.now()
     });
   });
 
-  socket.on('check_sync', (msg) => {
-    // Forward the host's current time to the requesting client
-    socket.emit('sync_check_response', {
-      currentTime: msg.currentTime,
-      serverTime: Date.now()
-    });
-  });
-
-  // Handle video control events from server_met (host)
-  socket.on('video_control', (msg) => {
-    if (io.sockets.adapter.rooms.has(msg.roomID)) {
-        // Add server timestamp for better sync calculations
-        msg.serverTime = Date.now();
-
-        // Broadcast to all clients in the room except sender
-        socket.to(msg.roomID).emit('video_state_change', msg);
-    }
-  });
-
-  // Handle video selection events
-  socket.on('select_video', (msg) => {
-    if (io.sockets.adapter.rooms.has(msg.roomID)) {
-        // Broadcast to everyone in the room including sender
-        io.to(msg.roomID).emit('play_video', msg);
-    }
-  });
-
-  // Handle sync requests
-  socket.on('request_sync', (msg) => {
-    if (io.sockets.adapter.rooms.has(msg.roomID)) {
-        const roomSockets = Array.from(io.sockets.adapter.rooms.get(msg.roomID) || []);
-        const hostSocket = roomSockets[0]; // Assuming first socket is host
-
-        if (hostSocket) {
-            io.to(hostSocket).emit('get_current_time', {
-                requester: socket.id,
-                roomID: msg.roomID
-            });
-        }
-    }
-  });
-
-  socket.on('check_sync', (msg) => {
-    if (io.sockets.adapter.rooms.has(msg.roomID)) {
-        const roomSockets = Array.from(io.sockets.adapter.rooms.get(msg.roomID) || []);
-        const hostSocket = roomSockets[0]; // First socket is host
-
-        if (hostSocket && hostSocket !== socket.id) {
-            io.to(hostSocket).emit('get_sync_time', {
-                requester: socket.id,
-                roomID: msg.roomID,
-                clientTime: msg.timestamp
-            });
-        }
-    }
-});
-
-socket.on('sync_response', (msg) => {
-    if (io.sockets.adapter.rooms.has(msg.roomID)) {
-        io.to(msg.requester).emit('sync_adjustment', msg);
-    }
-});
 });
 
 // Keep only the necessary routes

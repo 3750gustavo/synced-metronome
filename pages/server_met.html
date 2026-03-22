@@ -30,9 +30,13 @@
             <div class="start-stop">CREATE</div>
             <!-- shows the same video in sync, but also has a button to select a video from server -->
                 <div class="video_player_choosen_by_host">
-                    <video id="videoPlayer" width="640" height="360" controls muted>
+                    <video id="videoPlayer" width="640" height="360" controls>
                         Your browser does not support the video tag.
                     </video>
+                    <div class="volume-control">
+                        <label for="videoVolume">Video Volume:</label>
+                        <input type="range" id="videoVolume" min="0" max="1" step="0.1" value="1">
+                    </div>
                 </div>
                 
             <!-- Add a modal for video selection -->
